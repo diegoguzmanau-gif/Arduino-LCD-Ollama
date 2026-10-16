@@ -20,7 +20,7 @@ const int SWEEP_MAX = 150;
 const unsigned long SWEEP_STEP_DELAY = 30; // ms per degree (higher = slower sweep)
 
 // --- TIMING (all tunable) ---
-const unsigned long SETUP_DURATION = 80000UL;  // 1:20 startup timer
+const unsigned long SETUP_DURATION = 80000UL;  // 1:20 countdown shown on screen (estimate only, Python sends the real "ready")
 const unsigned long LISTEN_TIME    = 5000UL;   // matches RECORD_SECONDS in Python
 const unsigned long THINK_TIMEOUT  = 60000UL;  // give up waiting for an answer after this
 
@@ -30,6 +30,7 @@ State state = STATE_SETUP;
 
 unsigned long stateStart = 0;
 int lastCountdownShown = -1;
+bool setupOvertimeShown = false;
 
 // Servo sweep tracking
 int sweepAngle = CENTER_ANGLE;
@@ -133,8 +134,14 @@ void loop() {
     String message = Serial.readStringUntil('\n');
     message.trim();
 
-    // Ignore anything that arrives during startup
-    if (state != STATE_SETUP && message.length() > 0) {
+    if (message == "SYSTEM_READY") {
+      // Python finished loading Whisper and warming up Ollama
+      if (state == STATE_SETUP) {
+        showText("Ready for", "user input");
+        setState(STATE_READY);
+      }
+    }
+    else if (state != STATE_SETUP && message.length() > 0) {
       showAnswer(message);
       setState(STATE_ANSWER);
     }
@@ -149,8 +156,12 @@ void loop() {
       unsigned long elapsed = now - stateStart;
 
       if (elapsed >= SETUP_DURATION) {
-        showText("Ready for", "user input");
-        setState(STATE_READY);
+        // Countdown finished but Python hasn't said it's ready yet
+        if (!setupOvertimeShown) {
+          setupOvertimeShown = true;
+          lcd.setCursor(0, 1);
+          lcd.send_string("Almost ready... ");
+        }
       }
       else {
         // Update the countdown once per second
@@ -162,8 +173,8 @@ void loop() {
           lcd.setCursor(0, 1);
           lcd.send_string(line2);
         }
-        updateIdleSweep();
       }
+      updateIdleSweep();
       break;
     }
 
